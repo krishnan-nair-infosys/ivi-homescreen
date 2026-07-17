@@ -96,6 +96,10 @@ endif ()
 
 option(DEBUG_PLATFORM_MESSAGES "Debug platform messages" OFF)
 
+# Send KeyData via FlutterEngineSendKeyEvent (with flutter/keyevent companion).
+option(RDK_USE_FLUTTER_KEYDATA "Use FlutterEngineSendKeyEvent for framework keys" ON)
+MESSAGE(STATUS "RDK Flutter KeyData ...... ${RDK_USE_FLUTTER_KEYDATA}")
+
 #
 # Crash Handler
 #

@@ -40,6 +40,7 @@ TaskRunner::TaskRunner(std::string name, FlutterEngine& engine)
 
   asio::post(*strand_, [&]() {
     pthread_self_ = pthread_self();
+    platform_thread_ready_ = true;
     spdlog::debug("{} Task Runner, thread_id=0x{:x}", name_, pthread_self_);
   });
 }
@@ -101,6 +102,28 @@ std::future<FlutterEngineResult> TaskRunner::QueueUpdateLocales(
              UpdateLocales(engine, l.data(), l.size());
          promise->set_value(result);
        });
+
+  return future;
+}
+
+std::future<FlutterEngineResult> TaskRunner::QueueSendKeyEvent(
+    FlutterKeyEvent event,
+    std::string character) const {
+  auto promise(std::make_unique<std::promise<FlutterEngineResult>>());
+  auto future(promise->get_future());
+
+  post(*strand_, [event, character = std::move(character),
+                  promise = std::move(promise), engine = engine_]() mutable {
+    FlutterKeyEvent queued_event = event;
+    if (!character.empty() &&
+        event.type != kFlutterKeyEventTypeUp) {
+      queued_event.character = character.c_str();
+    } else {
+      queued_event.character = nullptr;
+    }
+    promise->set_value(LibFlutterEngine->SendKeyEvent(engine, &queued_event,
+                                                      nullptr, nullptr));
+  });
 
   return future;
 }

@@ -109,7 +109,8 @@ FlutterView::FlutterView(Configuration::Config config,
   auto internal_plugin_messenger =
       m_state->engine_state->internal_plugin_registrar->messenger();
   m_state->keyboard_hook_handlers.push_back(
-      std::make_unique<flutter::KeyEventHandler>(internal_plugin_messenger));
+      std::make_unique<flutter::KeyEventHandler>(internal_plugin_messenger,
+                                                 m_state.get()));
   m_state->keyboard_hook_handlers.push_back(
       std::make_unique<flutter::TextInputPlugin>(internal_plugin_messenger));
   m_wayland_display->SetViewControllerState(

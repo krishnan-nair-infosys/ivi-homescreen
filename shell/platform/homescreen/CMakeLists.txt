@@ -45,6 +45,10 @@ if (ACCESSKIT_FOUND)
     )
 endif ()
 
+if (RDK_USE_FLUTTER_KEYDATA)
+    target_compile_definitions(platform_homescreen PUBLIC RDK_USE_FLUTTER_KEYDATA)
+endif ()
+
 if (ENABLE_PLUGINS)
 
     if (POLICY CMP0076)

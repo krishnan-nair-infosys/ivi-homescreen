@@ -522,6 +522,38 @@ void Engine::SendPointerEvents() {
   }
 }
 
+void Engine::SendKeyEvent(const FlutterKeyEvent& event) {
+  if (!m_running || !m_flutter_engine || !LibFlutterEngine->SendKeyEvent) {
+    if (!LibFlutterEngine->SendKeyEvent) {
+      spdlog::warn("({}) FlutterEngineSendKeyEvent not available", m_index);
+    }
+    return;
+  }
+
+  FlutterKeyEvent queued_event = event;
+  std::string character_storage;
+  if (event.character != nullptr) {
+    character_storage = event.character;
+    queued_event.character = character_storage.c_str();
+  }
+
+  FlutterEngineResult result;
+  if (!m_platform_task_runner->IsThreadEqual(pthread_self())) {
+    auto future = m_platform_task_runner->QueueSendKeyEvent(
+        queued_event, std::move(character_storage));
+    future.wait();
+    result = future.get();
+  } else {
+    result = LibFlutterEngine->SendKeyEvent(m_flutter_engine, &queued_event,
+                                            nullptr, nullptr);
+  }
+
+  if (result != kSuccess) {
+    spdlog::warn("({}) FlutterEngineSendKeyEvent failed: {}", m_index,
+                 static_cast<int>(result));
+  }
+}
+
 FlutterEngineAOTData Engine::LoadAotData(const std::string& bundle_path) const {
   std::filesystem::path aot_data_path(bundle_path);
   aot_data_path /= kBundleAot;

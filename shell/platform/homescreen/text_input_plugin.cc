@@ -49,7 +49,8 @@ void TextInputPlugin::CharHook(const unsigned int code_point) {
 void TextInputPlugin::KeyboardHook(bool released,
                                    xkb_keysym_t keysym,
                                    uint32_t /* xkb_scancode */,
-                                   uint32_t /* modifiers */) {
+                                   uint32_t /* modifiers */,
+                                   const KeyboardHookMetadata& /* meta */) {
   if (active_model_ == nullptr) {
     return;
   }

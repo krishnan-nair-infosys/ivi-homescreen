@@ -405,10 +405,9 @@ void KeyCallback(FlutterDesktopViewControllerState* view_state,
                  bool released,
                  xkb_keysym_t keysym,
                  uint32_t xkb_scancode,
-                 const uint32_t modifiers) {
-  spdlog::debug("KeyCallback: released: {}, keysym: {}, xkb_scancode: {}",
-                released, keysym, xkb_scancode);
+                 const uint32_t modifiers,
+                 const flutter::KeyboardHookMetadata& meta) {
   for (const auto& handler : view_state->keyboard_hook_handlers) {
-    handler->KeyboardHook(released, keysym, xkb_scancode, modifiers);
+    handler->KeyboardHook(released, keysym, xkb_scancode, modifiers, meta);
   }
 }

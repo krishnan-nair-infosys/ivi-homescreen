@@ -298,6 +298,11 @@ class Engine {
   void SendPointerEvents();
 
   /**
+   * @brief Send a key event to the Flutter engine (KeyData path).
+   */
+  void SendKeyEvent(const FlutterKeyEvent& event);
+
+  /**
    * @brief Activate system cursor
    * @param[in] device No use
    * @param[in] kind Cursor kind

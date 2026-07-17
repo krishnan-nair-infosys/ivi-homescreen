@@ -18,6 +18,7 @@
 
 #include <future>
 #include <memory>
+#include <string>
 
 #include "asio/executor_work_guard.hpp"
 #include "asio/io_context.hpp"
@@ -37,8 +38,11 @@ class TaskRunner {
   static pthread_t GetThreadId() { return pthread_self(); };
 
   [[nodiscard]] bool IsThreadEqual(const pthread_t threadid) const {
-    return pthread_equal(threadid, pthread_self_) != 0;
+    return platform_thread_ready_ &&
+           pthread_equal(threadid, pthread_self_) != 0;
   };
+
+  [[nodiscard]] pthread_t GetPlatformThreadId() const { return pthread_self_; }
 
   void QueueFlutterTask(size_t index,
                         uint64_t target_time,
@@ -53,6 +57,10 @@ class TaskRunner {
   [[nodiscard]] std::future<FlutterEngineResult> QueueUpdateLocales(
       std::vector<const FlutterLocale*> locales) const;
 
+  std::future<FlutterEngineResult> QueueSendKeyEvent(
+      FlutterKeyEvent event,
+      std::string character) const;
+
   std::string GetName() { return name_; }
 
   [[nodiscard]] asio::io_context::strand* GetStrandContext() const {
@@ -63,7 +71,8 @@ class TaskRunner {
   std::string name_;
   FlutterEngine& engine_;
   std::thread thread_;
-  pthread_t pthread_self_;
+  bool platform_thread_ready_{false};
+  pthread_t pthread_self_{};
   std::unique_ptr<asio::io_context> io_context_;
   asio::executor_work_guard<decltype(io_context_->get_executor())> work_;
   std::unique_ptr<asio::io_context::strand> strand_;

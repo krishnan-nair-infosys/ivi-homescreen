@@ -19,12 +19,14 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <xkbcommon/xkbcommon.h>
+#include <xkbcommon/xkbcommon-keysyms.h>
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <utility>
 
 #include "config/common.h"
+#include "shell/input/key_mapping.h"
 
 #include "engine.h"
 #include "timer.h"
@@ -33,7 +35,8 @@ extern void KeyCallback(FlutterDesktopViewControllerState* view_state,
                         bool released,
                         xkb_keysym_t keysym,
                         uint32_t xkb_scancode,
-                        uint32_t modifiers);
+                        uint32_t modifiers,
+                        const flutter::KeyboardHookMetadata& meta);
 
 Display::Display(const bool enable_cursor,
                  const std::string& ignore_wayland_event,
@@ -625,8 +628,21 @@ void Display::keyboard_handle_key(void* data,
                                   uint32_t state) {
   auto* d = static_cast<Display*>(data);
 
-  if (!d->m_xkb_state)
+  // RDKShell returns -1 (0xffffffff) for unmapped keys; forwarding crashes XKB
+  // (scancode wraps to 0x7) and produces spurious Flutter events.
+  if (key == 0xffffffffu) {
+    spdlog::warn(
+        "[RDK_EMBEDDER_KEY_SKIP] evdev=0xffffffff (unmapped in RDKShell) — "
+        "check /etc/rcu_mapping.json and linuxkeys.cpp keyCodeToWayland()");
     return;
+  }
+
+  if (!d->m_xkb_state) {
+    spdlog::warn(
+        "[RDK_EMBEDDER_KEY_RAW] xkb_state is NULL - key dropped! evdev={:#x}",
+        key);
+    return;
+  }
 
   //
   // Important: the scancode from this event is the Linux evdev scancode.
@@ -645,7 +661,6 @@ void Display::keyboard_handle_key(void* data,
         xkb_state_key_get_syms(d->m_xkb_state, xkb_scancode, &key_symbols);
     if (res == 0) {
       spdlog::debug("xkb_scancode has no key symbols: 0x{:x}", xkb_scancode);
-      keysym = XKB_KEY_NoSymbol;
     } else {
       // only use the first symbol until the use case for two is clarified
       keysym = key_symbols[0];
@@ -655,13 +670,33 @@ void Display::keyboard_handle_key(void* data,
     }
   }
 
+  char utf8[8] = {0};
+  xkb_state_key_get_utf8(d->m_xkb_state, xkb_scancode, utf8, sizeof(utf8));
+  const uint32_t keysym_u = static_cast<uint32_t>(keysym);
+  const uint64_t derived_logical = homescreen::keys::DeriveLogicalKey(
+      key, utf8, keysym_u);
+  const uint64_t physical = homescreen::keys::EvdevToFlutterPhysical(
+      key, xkb_scancode, keysym_u);
+
+  const xkb_keysym_t forward_keysym = static_cast<xkb_keysym_t>(
+      homescreen::keys::ForwardKeysym(key, keysym_u, derived_logical));
+
+  flutter::KeyboardHookMetadata meta;
+  meta.evdev = key;
+  meta.logical = derived_logical;
+  meta.physical = physical;
+  meta.name = homescreen::keys::DisplayName(key, derived_logical);
+  meta.utf8 = (utf8[0] != '\0') ? utf8 : nullptr;
+
   KeyCallback(d->m_view_controller_state,
-              state == WL_KEYBOARD_KEY_STATE_RELEASED, keysym, xkb_scancode, 0);
+              state == WL_KEYBOARD_KEY_STATE_RELEASED, forward_keysym,
+              xkb_scancode, 0, meta);
 
   if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
     if (xkb_keymap_key_repeats(d->m_keymap, xkb_scancode)) {
       SPDLOG_DEBUG("xkb_keymap_key_repeats: 0x{:x}", xkb_scancode);
-      d->m_keysym_pressed = keysym;
+      d->m_keysym_pressed = static_cast<xkb_keysym_t>(keysym_u);
+      d->m_repeat_meta = meta;
       set_repeat_code(d, xkb_scancode);
       d->m_repeat_timer->arm();
     } else {
@@ -709,8 +744,16 @@ const wl_keyboard_listener Display::keyboard_listener = {
 void Display::keyboard_repeat_func(void* data) {
   if (auto d = static_cast<Display*>(data);
       XKB_KEY_NoSymbol != d->m_repeat_code) {
+    char repeat_utf8[8] = {0};
+    if (d->m_xkb_state) {
+      xkb_state_key_get_utf8(d->m_xkb_state, d->m_repeat_code, repeat_utf8,
+                             sizeof(repeat_utf8));
+    }
+    flutter::KeyboardHookMetadata repeat_meta = d->m_repeat_meta;
+    repeat_meta.is_repeat = true;
+    repeat_meta.utf8 = (repeat_utf8[0] != '\0') ? repeat_utf8 : nullptr;
     KeyCallback(d->m_view_controller_state, false, d->m_keysym_pressed,
-                d->m_repeat_code, 0);
+                d->m_repeat_code, 0, repeat_meta);
   }
 }
 

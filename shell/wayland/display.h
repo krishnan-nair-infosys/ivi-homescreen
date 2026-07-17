@@ -32,7 +32,6 @@
 #include "config/common.h"
 #include "configuration/configuration.h"
 #include "platform/homescreen/flutter_desktop_view_controller_state.h"
-#include "platform/homescreen/key_event_handler.h"
 #include "platform/homescreen/keyboard_hook_handler.h"
 #include "platform/homescreen/text_input_plugin.h"
 #include "timer.h"
@@ -493,6 +492,8 @@ class Display {
   struct xkb_state* m_xkb_state{};
 
   xkb_keysym_t m_keysym_pressed{};
+
+  flutter::KeyboardHookMetadata m_repeat_meta{};
 
   std::mutex m_lock;
   uint32_t m_repeat_code{};

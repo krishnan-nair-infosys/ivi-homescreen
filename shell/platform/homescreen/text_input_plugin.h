@@ -31,7 +31,8 @@ class TextInputPlugin final : public KeyboardHookHandler {
   void KeyboardHook(bool released,
                     xkb_keysym_t keysym,
                     uint32_t xkb_scancode,
-                    uint32_t modifiers) override;
+                    uint32_t modifiers,
+                    const KeyboardHookMetadata& meta) override;
 
   // |KeyboardHookHandler|
   void CharHook(unsigned int code_point) override;

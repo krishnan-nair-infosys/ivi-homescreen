@@ -24,6 +24,9 @@
 // (0x0010'0000'0000 range). For practical correctness we derive logical
 // keys from the XKB-supplied UTF-8 character when available, and fall
 // through to a small non-printable table otherwise.
+//
+// RCU extensions: kRcuMap (evdev → logical + name). Unmapped physicals use
+// custom plane 0x20 | xkb_scancode. Requires correct WM outbound evdev.
 
 #pragma once
 
@@ -38,6 +41,15 @@ constexpr uint64_t kHidKeyboardPage = 0x00070000ULL;
 
 // Flutter's logical key namespace for non-printable keys.
 constexpr uint64_t kFlutterLogicalPlane = 0x0100000000ULL;
+
+// Custom platform physical plane for keys not in kMap (gen_keycodes 0x20–0x2F).
+constexpr uint64_t kRdkCustomPhysicalPlane = 0x2000000000ULL;
+
+// Color codes as delivered by WM KEYMAP_OUT (WAYLAND_KEY_*).
+constexpr uint32_t kRdkEvdevYellow = 398;  // 0x18e
+constexpr uint32_t kRdkEvdevBlue = 399;    // 0x18f
+constexpr uint32_t kRdkEvdevRed = 400;     // 0x190
+constexpr uint32_t kRdkEvdevGreen = 401;   // 0x191
 
 // Convert a Linux evdev key code to a Flutter physical key ID.
 // Returns 0 for unmapped keys (the engine treats physical=0 as empty).
@@ -135,18 +147,18 @@ inline uint32_t Utf8ToCodePoint(const char* s) {
   }
   if ((c0 & 0xE0) == 0xC0 && s[1]) {
     return (static_cast<uint32_t>(c0 & 0x1F) << 6) |
-           (static_cast<uint32_t>(s[1]) & 0x3F);
+           (static_cast<uint32_t>(static_cast<uint8_t>(s[1])) & 0x3F);
   }
   if ((c0 & 0xF0) == 0xE0 && s[1] && s[2]) {
     return (static_cast<uint32_t>(c0 & 0x0F) << 12) |
-           ((static_cast<uint32_t>(s[1]) & 0x3F) << 6) |
-           (static_cast<uint32_t>(s[2]) & 0x3F);
+           ((static_cast<uint32_t>(static_cast<uint8_t>(s[1])) & 0x3F) << 6) |
+           (static_cast<uint32_t>(static_cast<uint8_t>(s[2])) & 0x3F);
   }
   if ((c0 & 0xF8) == 0xF0 && s[1] && s[2] && s[3]) {
     return (static_cast<uint32_t>(c0 & 0x07) << 18) |
-           ((static_cast<uint32_t>(s[1]) & 0x3F) << 12) |
-           ((static_cast<uint32_t>(s[2]) & 0x3F) << 6) |
-           (static_cast<uint32_t>(s[3]) & 0x3F);
+           ((static_cast<uint32_t>(static_cast<uint8_t>(s[1])) & 0x3F) << 12) |
+           ((static_cast<uint32_t>(static_cast<uint8_t>(s[2])) & 0x3F) << 6) |
+           (static_cast<uint32_t>(static_cast<uint8_t>(s[3])) & 0x3F);
   }
   return 0;
 }
@@ -173,6 +185,77 @@ inline uint64_t DeriveLogicalKey(const char* utf8, uint32_t xkb_sym) {
   // Escape, Delete, arrows, Home/End/PgUp/PgDn, F1–F24, modifiers).
   // The framework resolves them at the Dart layer.
   return xkb_sym;
+}
+
+// RCU: Wayland/Linux evdev → logical KeyData ID + display name.
+struct RcuMapEntry {
+  uint32_t evdev;
+  uint64_t logical;
+  const char* name;
+};
+
+// clang-format off
+inline constexpr RcuMapEntry kRcuMap[] = {
+  {KEY_TV,           0x100000d49ULL, "Live TV"},
+  {KEY_ADDRESSBOOK,  0x100000d34ULL, "Profile"},
+  {KEY_SEARCH,       0x100000e06ULL, "Voice Search"},
+  {kRdkEvdevRed,     0x100000d0cULL, "Red"},
+  {kRdkEvdevGreen,   0x100000d0dULL, "Green"},
+  {kRdkEvdevYellow,  0x100000d0eULL, "Yellow"},
+  {kRdkEvdevBlue,    0x100000d0fULL, "Blue"},
+  {KEY_PROGRAM,      0x100000d22ULL, "Guide"},
+  {KEY_CONTEXT_MENU, 0x100070065ULL, "ContextMenu"},
+  {KEY_HOMEPAGE,     0x10007004aULL, "Home"},
+  {KEY_POWER,        0x100070066ULL, "Power"},
+  {KEY_RECORD,       0x1008ff1cULL, "Record"},
+  {KEY_PLAYPAUSE,    0x1008ff14ULL, "PlayPause"},
+  {KEY_REWIND,       0x1008ff3eULL, "Rewind"},
+  {KEY_FASTFORWARD,  0x1008ff97ULL, "FastForward"},
+  {KEY_CHANNELUP,    0x1008ff5eULL, "ChannelUp"},
+  {KEY_CHANNELDOWN,  0x1008ff56ULL, "ChannelDown"},
+};
+// clang-format on
+
+inline const RcuMapEntry* LookupRcu(uint32_t evdev) {
+  for (const auto& entry : kRcuMap) {
+    if (entry.evdev == evdev) {
+      return &entry;
+    }
+  }
+  return nullptr;
+}
+
+inline uint64_t DeriveLogicalKey(uint32_t evdev,
+                                 const char* utf8,
+                                 uint32_t xkb_sym) {
+  if (const auto* rcu = LookupRcu(evdev)) {
+    return rcu->logical;
+  }
+  return DeriveLogicalKey(utf8, xkb_sym);
+}
+
+// XKB keysym for the legacy flutter/keyevent channel.
+inline uint32_t ForwardKeysym(uint32_t /*evdev*/,
+                              uint32_t xkb_sym,
+                              uint64_t /*derived_logical*/) {
+  return xkb_sym;
+}
+
+inline uint64_t EvdevToFlutterPhysical(uint32_t evdev,
+                                       uint32_t xkb_scancode,
+                                       uint32_t /*xkb_sym*/) {
+  const uint64_t physical = EvdevToPhysical(evdev);
+  if (physical != 0) {
+    return physical;
+  }
+  return kRdkCustomPhysicalPlane | xkb_scancode;
+}
+
+inline const char* DisplayName(uint32_t evdev, uint64_t /*logical*/) {
+  if (const auto* rcu = LookupRcu(evdev)) {
+    return rcu->name;
+  }
+  return "";
 }
 
 }  // namespace homescreen::keys

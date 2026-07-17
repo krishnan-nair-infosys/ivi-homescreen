@@ -12,7 +12,16 @@
 
 namespace flutter {
 
-struct FlutterDesktopViewControllerState;
+// RDK key metadata from display.cc (evdev, Flutter logical/physical, display name).
+struct KeyboardHookMetadata {
+  uint32_t evdev = 0;
+  uint64_t logical = 0;
+  uint64_t physical = 0;
+  const char* name = "";
+  // UTF-8 from xkb_state_key_get_utf8(); valid only for the synchronous hook call.
+  const char* utf8 = nullptr;
+  bool is_repeat = false;
+};
 
 // Abstract class for handling keyboard input events.
 class KeyboardHookHandler {
@@ -23,7 +32,8 @@ class KeyboardHookHandler {
   virtual void KeyboardHook(bool released,
                             xkb_keysym_t keysym,
                             uint32_t xkb_scancode,
-                            uint32_t modifiers) = 0;
+                            uint32_t modifiers,
+                            const KeyboardHookMetadata& meta) = 0;
 
   // A function for hooking into unicode code point input.
   virtual void CharHook(unsigned int code_point) = 0;

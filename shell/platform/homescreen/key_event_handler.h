@@ -6,6 +6,7 @@
 #define FLUTTER_SHELL_PLATFORM_DESKTOP_KEY_EVENT_HANDLER_H
 
 #include <memory>
+#include <string>
 
 #include "rapidjson/rapidjson.h"
 
@@ -21,7 +22,8 @@ namespace flutter {
 // Handles key events and forwards them to the Flutter engine.
 class KeyEventHandler final : public KeyboardHookHandler {
  public:
-  explicit KeyEventHandler(flutter::BinaryMessenger* messenger);
+  KeyEventHandler(flutter::BinaryMessenger* messenger,
+                  ::FlutterDesktopViewControllerState* view_state);
 
   ~KeyEventHandler() override;
 
@@ -29,14 +31,28 @@ class KeyEventHandler final : public KeyboardHookHandler {
   void KeyboardHook(bool released,
                     xkb_keysym_t keysym,
                     uint32_t xkb_scancode,
-                    uint32_t modifiers) override;
+                    uint32_t modifiers,
+                    const KeyboardHookMetadata& meta) override;
 
   // |KeyboardHookHandler|
   void CharHook(unsigned int code_point) override;
 
  private:
+#if defined(RDK_USE_FLUTTER_KEYDATA)
+  void SendFlutterKeyData(bool released,
+                          xkb_keysym_t keysym,
+                          const KeyboardHookMetadata& meta);
+#endif
+
+  void SendLegacyKeyEvent(bool released,
+                          xkb_keysym_t keysym,
+                          uint32_t xkb_scancode,
+                          uint32_t modifiers);
+
   // The Flutter system channel for key event messages.
   std::unique_ptr<flutter::BasicMessageChannel<rapidjson::Document>> channel_;
+  ::FlutterDesktopViewControllerState* view_state_;
+  std::string character_buffer_;
 };
 
 }  // namespace flutter
